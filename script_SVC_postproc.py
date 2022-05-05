@@ -228,18 +228,19 @@ def calibration_MX_and_SVC(metadata, data, indices_path, datadir, MX_filter_path
 
 
 
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
+    """                
+    INPUT:
+            1) Path of data classified
+            2) Indices path
+    OUTPUT: 
+            1) metadata and spectral data of all measures
+            2) metadata and spectral data filtered, just measures of plots
+            3) 'files_and_ids_plot.csv' - Archivo que enlaza el fichero con el id del plot
+            4) stats calibration of SVC and MX for plotting and compared data
     """
-                ---CONTROL LOOP---
-    """
+    # CONTROL LOOP.
+
     #Este es el único path que se modifica.
     datadir_classified_measures = "Z:/11-Projects/CERESTRES/04-Raw/SVC_HR1024i/Santaella/2022_04_22/classified/"
     datadir_full = datadir_classified_measures[0:-11]
@@ -249,8 +250,6 @@ if __name__ == "__main__":
                                   att_dir_secano="Z:/11-Projects/CERESTRES/02-ensayo/Santaella/Shapefiles/01-attributes/secano/secano_shapefile_full_atributes.shp")
     metadata, data = extract_metadata_and_data_SVC(data_path=datadir_full)
     metadata_filter, data_filter = export_metadata_to_csv(datadir_full, metadata, data, df_measures_att)
-    print(metadata_filter.columns)
     calibration_MX_and_SVC(metadata=metadata_filter, data=data_filter, indices_path='', datadir=datadir_full,
                            MX_filter_path='report_RedEdge_3_Filters_srs.csv')
-    print('Algoritmo terminado correctamente')
-    
+    print('Algoritmo FINALIZADO correctamente')
