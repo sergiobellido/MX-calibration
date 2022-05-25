@@ -205,7 +205,7 @@ class compare_flights():
         print("Finished process")
 
 class compare_flight_with_SVC():
-    def __init__(self, directory_pr1, directory_svc_data, index, stats_computed, title_plot):
+    def __init__(self, directory_pr1, directory_svc_data, index, stats_computed, title_plot, errorbar):
         self.directory_pr1 = directory_pr1
         self.directory_svc_data = directory_svc_data
         self.index = index
@@ -213,39 +213,22 @@ class compare_flight_with_SVC():
         self.title = title_plot
         self.tipo_vuelo = self.title.split('-')[0]
         self.correccion_radiometrica = self.title.split('-')[1]
+        self.errorbar = errorbar
         self.ficheros_tifs_proyecto_1 = []
         # Comprobar si existen los directorios
         if os.path.exists(self.directory_pr1) & os.path.exists(self.directory_svc_data):
             try:
                 #Extraer shapefiles RIEGO Y SECANO
-                self.df_svc = pd.read_csv(self.directory_svc_data)
-                self.df_svc = self.df_svc.rename(columns={'CH_blue_SVC': 'blue_SVC', 'CH_green_SVC': 'green_SVC',
-                                                'CH_red_SVC': 'red_SVC', 'CH_redEdge_SVC': 'red_edge_SVC',
-                                                'CH_infrared_SVC': 'nir_SVC'})
-                # Drop columns of MX index_MX
-                self.df_svc = self.df_svc.drop(self.df_svc.filter(regex='MX_').columns, axis=1)
-                self.gpd_svc = gpd.GeoDataFrame(self.df_svc)
+                self.df_svc = pd.read_csv(self.directory_svc_data, index_col=0)
+                self.raster_telas = pd.read_csv("C:/Users/Sergio/Downloads/poligonos_telas/telas_relacion.csv",
+                                                index_col='file')
+                self.gpd_svc = pd.merge(self.df_svc, self.raster_telas, left_index=True, right_index=True)
             except Exception as ex:
                 print('ERROR: Check geometry shapefile, error type: {}'.format(ex))
                 quit()
         else:
             print('ERROR: Project directories do not exist...')
             quit()
-        # Añadir índices SVC (NOTE: nir is infrared)
-        blue = self.df_svc['blue_SVC']
-        green = self.df_svc['green_SVC']
-        red = self.df_svc['red_SVC']
-        red_edge = self.df_svc['red_edge_SVC']
-        nir = self.df_svc['nir_SVC']
-        self.df_svc['ndvi_SVC'] = (nir - red) / (nir + red)
-        self.df_svc['gndvi_SVC'] = (nir - green) / (nir + green)
-        self.df_svc['ndre_SVC'] = (nir - red_edge) / (nir + red_edge)
-        self.df_svc['tgi_SVC'] = green - 0.39 * red - 0.61 * blue
-        self.df_svc['gli_SVC'] = ((green - red) + (green - blue))/(2 * green + red + blue)
-        self.df_svc['tcari_SVC'] = 3*((red_edge - red) - 0.2 * (red_edge - green) * (red_edge / red))
-        self.df_svc['osavi_SVC'] = (1+0.16)*(nir - red)/(nir + red + 0.16)
-        self.df_svc['sccci_SVC'] = ((nir - red_edge) / (nir + red_edge))/((nir - red) / (nir + red))
-
         print("Starting comparison...")
         self.control_loop()
 
@@ -262,13 +245,13 @@ class compare_flight_with_SVC():
         # Project 1
         contador = 0
         for tif in self.ficheros_tifs_proyecto_1:
-            self.df = pd.DataFrame(zonal_stats(self.gpd_svc.geometry, tif, stats=self.stats_computed)).add_suffix('_' + self.index[contador]+ '_MX')
+            self.df = pd.DataFrame(zonal_stats(self.gpd_svc.geometry, tif, stats=self.stats_computed + ' std')).add_suffix('_' + self.index[contador]+ '_MX')
             if contador == 0:
                 self.df_proyecto_1 = self.df
             else:
                 self.df_proyecto_1 = self.df_proyecto_1.join(self.df)
             contador += 1
-
+        self.df_proyecto_1.index = self.df_svc.index
         # Merge dataframes
         self.df_stats = pd.merge(self.df_svc, self.df_proyecto_1, left_index=True, right_index=True,
                                  suffixes=['_SVC', '_MX'])
@@ -289,6 +272,13 @@ class compare_flight_with_SVC():
             [self.RMSE, self.r2, self.slope, self.intercept] = validation_plot_SVC(plot_stat + self.index[contador] + '_MX', self.index[contador] + '_SVC',
                             self.df_stats,
                             ax=axarr[axarr_fila][axarr_columna], alpha=1, c=color)
+            if self.errorbar:
+                # Plot errorbar
+                axarr[axarr_fila][axarr_columna].errorbar(self.df_stats[plot_stat + self.index[contador] + '_MX'],
+                                                          self.df_stats[self.index[contador] + '_SVC'],
+                                                          xerr=self.df_stats['std_' + self.index[contador] + '_MX'],
+                                                          fmt='o')
+
             #Asignar variables para la tabla estadística
             valores = [self.tipo_vuelo, self.correccion_radiometrica, self.index[contador], self.RMSE, self.r2, self.slope, self.intercept]
             self.df_table.loc[len(self.df_table)] = valores
@@ -308,7 +298,7 @@ class compare_flight_with_SVC():
         fig.suptitle(self.title)
         fig.tight_layout()
         try:
-            plt.savefig(self.title + '.png')
+            plt.savefig(directory_svc + self.title + '.png')
             #self.df_table.to_csv(self.title + '.csv', index=False)
             print('IMAGE SAVED, {}'.format(self.title))
             #return self.df_table
@@ -327,7 +317,7 @@ if __name__ == '__main__':
     if comparar_SVC:
     #Comparar vuelo con SVC data
 
-        '''titles = ['Cruzado - CameraOnly', 'Cruzado - Camera and SunIrradiance',
+        titles = ['Cruzado - CameraOnly', 'Cruzado - Camera and SunIrradiance',
                   'Cruzado - Camera,SunIrradiance and Sun angle',
                   'Longitudinal - CameraOnly', 'Longitudinal - Camera and SunIrradiance',
                   'Longitudinal - Camera,SunIrradiance and Sun angle',
@@ -335,21 +325,18 @@ if __name__ == '__main__':
                   'Transversal - Camera,SunIrradiance and Sun angle']
 
         directories_list = [
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_only/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_and_SunIrradiance/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_only/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_and_SunIrradiance/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_vuelo_dos_pasadas/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices",
 
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_longitudinal/Camera_only/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_longitudinal/Camera_and_SunIrradiance/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_longitudinal/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_longitudinal/Camera_only/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_longitudinal/Camera_and_SunIrradiance/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_longitudinal/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices",
 
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_transversal/Camera_only/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_transversal/Camera_and_SunIrradiance/indices",
-            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220421_MX/indices_analisis_SBJ/indices_transversal/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices"
-            ]'''
-        titles = ['Cruzado - Camera and SunIrradiance - Fecha vuelo : 17/05/2022']
-        directories_list = ['Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/4_index/indices']
-
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_transversal/Camera_only/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_transversal/Camera_and_SunIrradiance/indices",
+            "Z:/11-Projects/CERESTRES/05-pix4d/Santaella_20220517_MX/indices_analisis_SBJ/indices_transversal/Camera_SunIrradiance_SunAngle_using_DLS_IMU/indices"
+        ]
 
         directory_svc = "Z:/11-Projects/CERESTRES/04-Raw/SVC_HR1024i/Santaella/2022_05_17/comparacion_tiposVuelos_vs_SVC/"
         # Call class
@@ -357,9 +344,10 @@ if __name__ == '__main__':
         df_tablas_stats = pd.DataFrame(columns=['tipo_vuelo','correccion_rad','indice','RMSE','r2','slope','intercept'])
         for directory in directories_list:
             flight = compare_flight_with_SVC(directory_pr1=directory,
-                                             directory_svc_data="Z:/11-Projects/CERESTRES/04-Raw/SVC_HR1024i/Santaella/2022_04_22/df_stats_calibration_SVC_and_MX.csv",
-                                             index="blue green red red_edge nir ndvi ndre tgi tcari osavi sccci",
+                                             directory_svc_data="Z:/11-Projects/CERESTRES/04-Raw/SVC_HR1024i/Santaella/2022_05_17/telas/df_svc_stats.csv",
+                                             index="blue green red red_edge nir ndvi",
                                              stats_computed="median",
+                                             errorbar = True,
                                              title_plot=titles[contador_title])
             #Concatenar los dataframes de las estadisticas
             df_tablas_stats = pd.concat([df_tablas_stats, flight.df_table])
